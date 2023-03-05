@@ -28,6 +28,10 @@
           <string>Bits</string>
           <int>16</int>
         </entry>
+        <entry>
+          <string>isProgramCounter</string>
+          <boolean>true</boolean>
+        </entry>
       </elementAttributes>
       <pos x="260" y="400"/>
     </visualElement>
@@ -56,7 +60,7 @@
         </entry>
         <entry>
           <string>lastDataFile</string>
-          <file>C:\Users\brady\repos\bwb_cpu16\isa\prog.bin</file>
+          <file>C:\Users\brady\repos\bwb_cpu16\asm\test.bin</file>
         </entry>
         <entry>
           <string>autoReload</string>

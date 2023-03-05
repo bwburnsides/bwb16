@@ -21,11 +21,10 @@
 //
 //   Byte3     Byte2     Byte1     Byte0
 // |-------| |-------| |-------| |-------|
-// xxxx xxx0 0000 0000 0000 0000 0000 0000
+// xxxx xx00 0000 0000 0000 0000 0000 0000
 //
 
 use std::fs;
-use std::path::Path;
 use std::io::prelude::*;
 
 type Instruction = u16;
@@ -298,27 +297,16 @@ fn decode_instruction(inst: Instruction) -> ControlWord {
 }
 
 fn write_roms(control_words: Vec<ControlWord>) -> std::io::Result<()> {
-    let output_directory = Path::new("../roms");
+    let mut bytes = Vec::new();
 
-    if !output_directory.exists() {
-        fs::create_dir(output_directory)?;
+    for word in control_words {
+        for i in 0..4 {
+            let byte = ((word & (255 << (i * 8))) >> (i * 8)) as u8;
+            bytes.push(byte);
+        }
     }
 
-    for i in 0..4 {
-        let file_name = format!("../roms/cpu16_control_rom_{}.bin", i);
-
-        let bytes = &control_words
-            .clone()
-            .into_iter()
-            .map(
-                |word| ((word & (255 << (i * 8))) >> (i * 8)) as u8
-            )
-            .collect::<Vec<u8>>();
-
-        fs::File::create(file_name)?.write_all(bytes)?;
-    }
-
-    Ok(())
+    fs::File::create("../bwb16_control_rom.bin")?.write_all(&bytes)
 }
 
 fn encode_control_word(lines: ControlLines) -> ControlWord {

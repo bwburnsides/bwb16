@@ -57,7 +57,7 @@
           <int>4</int>
         </entry>
       </elementAttributes>
-      <pos x="600" y="500"/>
+      <pos x="960" y="360"/>
     </visualElement>
     <visualElement>
       <elementName>In</elementName>
@@ -85,7 +85,7 @@
           <int>16</int>
         </entry>
       </elementAttributes>
-      <pos x="600" y="420"/>
+      <pos x="680" y="460"/>
     </visualElement>
     <visualElement>
       <elementName>Const</elementName>
@@ -99,25 +99,62 @@
           <int>4</int>
         </entry>
       </elementAttributes>
-      <pos x="580" y="500"/>
+      <pos x="940" y="360"/>
+    </visualElement>
+    <visualElement>
+      <elementName>Add</elementName>
+      <elementAttributes>
+        <entry>
+          <string>Bits</string>
+          <int>16</int>
+        </entry>
+      </elementAttributes>
+      <pos x="580" y="460"/>
+    </visualElement>
+    <visualElement>
+      <elementName>Const</elementName>
+      <elementAttributes>
+        <entry>
+          <string>Value</string>
+          <long>0</long>
+        </entry>
+      </elementAttributes>
+      <pos x="560" y="500"/>
+    </visualElement>
+    <visualElement>
+      <elementName>barrel_shifter.dig</elementName>
+      <elementAttributes/>
+      <pos x="800" y="440"/>
     </visualElement>
   </visualElements>
   <wires>
     <wire>
-      <p1 x="560" y="420"/>
-      <p2 x="600" y="420"/>
+      <p1 x="500" y="480"/>
+      <p2 x="580" y="480"/>
     </wire>
     <wire>
-      <p1 x="580" y="500"/>
-      <p2 x="600" y="500"/>
+      <p1 x="560" y="500"/>
+      <p2 x="580" y="500"/>
+    </wire>
+    <wire>
+      <p1 x="940" y="360"/>
+      <p2 x="960" y="360"/>
+    </wire>
+    <wire>
+      <p1 x="460" y="520"/>
+      <p2 x="500" y="520"/>
     </wire>
     <wire>
       <p1 x="460" y="460"/>
-      <p2 x="560" y="460"/>
+      <p2 x="580" y="460"/>
     </wire>
     <wire>
-      <p1 x="560" y="420"/>
-      <p2 x="560" y="460"/>
+      <p1 x="640" y="460"/>
+      <p2 x="680" y="460"/>
+    </wire>
+    <wire>
+      <p1 x="500" y="480"/>
+      <p2 x="500" y="520"/>
     </wire>
   </wires>
   <measurementOrdering/>
