@@ -24,7 +24,8 @@
 // xxxx xxx0 0000 0000 0000 0000 0000 0000
 //
 
-use std::fs::File;
+use std::fs;
+use std::path::Path;
 use std::io::prelude::*;
 
 type Instruction = u16;
@@ -297,8 +298,14 @@ fn decode_instruction(inst: Instruction) -> ControlWord {
 }
 
 fn write_roms(control_words: Vec<ControlWord>) -> std::io::Result<()> {
+    let output_directory = Path::new("../roms");
+
+    if !output_directory.exists() {
+        fs::create_dir(output_directory)?;
+    }
+
     for i in 0..4 {
-        let file_name = format!("../cpu16_control_rom_{}.bin", i);
+        let file_name = format!("../roms/cpu16_control_rom_{}.bin", i);
 
         let bytes = &control_words
             .clone()
@@ -308,7 +315,7 @@ fn write_roms(control_words: Vec<ControlWord>) -> std::io::Result<()> {
             )
             .collect::<Vec<u8>>();
 
-        File::create(file_name)?.write_all(bytes)?;
+        fs::File::create(file_name)?.write_all(bytes)?;
     }
 
     Ok(())
