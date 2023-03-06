@@ -5,252 +5,276 @@
 //
 // Control lines that need to be set:
 //
-// Jump Condition       - 3b  Lowest bit
-// Write Register       - 1b
-// Left Select          - 1b
-// Right Select         - 1b
-// Source Register      - 4b
-// Destination Register - 4b
-// Immediate Format     - 2b
-// ALU Operation        - 4b
-// Write Memory         - 2b
-// Read Memory          - 2b
-// Writeback Select     - 2b  Highest bit
+// Jump Condition        - 3b  Lowest bit
+// Write Register        - 1b
+// Register Write Select - 1b
+// Left Select           - 1b
+// Right Select          - 1b
+// Source Register       - 4b
+// Destination Register  - 4b
+// Immediate Format      - 2b
+// ALU Operation         - 4b
+// Write Memory          - 2b
+// Read Memory           - 2b
+// Writeback Select      - 2b  Highest bit
 //
-//                Total = 26b
+//                Total = 27b
 //
 //   Byte3     Byte2     Byte1     Byte0
 // |-------| |-------| |-------| |-------|
-// xxxx xx00 0000 0000 0000 0000 0000 0000
+// xxxx x000 0000 0000 0000 0000 0000 0000
 //
 
 use std::fs;
 use std::io::prelude::*;
 
-type Instruction = u16;
-type ControlWord = u32;
+mod isa {
+    pub struct InstructionField {
+        pub width: u16,
+        pub shift: u16,
+    }
 
-// ------------------------------------
+    pub mod opcodes {
+        pub const ALU: u16 = 0b0000;
+        pub const LUI: u16 = 0b01; // low 2 bits
+        pub const LD: u16 = 0b0010;
+        pub const AUIPC: u16 = 0b11; // low 2 bits
+        pub const ST: u16 = 0b0100;
+        pub const LD8S: u16 = 0b0110;
+        pub const IMM: u16 = 0b1000;
+        pub const LD8: u16 = 0b1010;
+        pub const ST8: u16 = 0b1100;
+        pub const JMP: u16 = 0b1110;
+    }
 
-struct InstructionField {
-    width: Instruction,
-    shift: Instruction,
+    pub mod jumps {
+        pub const EQ: u16 = 0b000;
+        pub const NE: u16 = 0b001;
+        pub const LT: u16 = 0b010;
+        pub const GE: u16 = 0b011;
+        pub const LTS: u16 = 0b100;
+        pub const GES: u16 = 0b101;
+        pub const JR: u16 = 0b110;
+        pub const JRAL: u16 = 0b111;
+    }
+
+    pub mod functions {
+        pub const ADD: u16 = 0b0000;
+        pub const SUB: u16 = 0b0001;
+        pub const ADDC: u16 = 0b0010;
+        pub const SUBB: u16 = 0b0011;
+        pub const AND: u16 = 0b0100;
+        pub const OR: u16 = 0b0101;
+        pub const XOR: u16 = 0b0110;
+        pub const SHL: u16 = 0b0111;
+        pub const LSR: u16 = 0b1000;
+        pub const ASR: u16 = 0b1001;
+        // 0b1010;
+        // 0b1011;
+        // 0b1100;
+        pub const CMP: u16 = 0b1101;
+        pub const MOV: u16 = 0b1110;
+        pub const SUB_FUNCTION: u16 = 0b1111;
+    }
+
+    pub mod sub_functions {
+        pub const NOT: u16 = 0b0000;
+        pub const NEG: u16 = 0b0001;
+        pub const NEGB: u16 = 0b0010;
+        // 0b0011 - 0b1110
+        pub const CONTROL_FUNCTION: u16 = 0b1111;
+    }
+
+    pub mod control_functions {
+        pub const NOP: u16 = 0b0000;
+        pub const BREAK: u16 = 0b0001;
+        pub const HALT: u16 = 0b0010;
+        pub const ERR: u16 = 0b0011;
+        pub const SYS: u16 = 0b0100;
+        pub const SRET: u16 = 0b0101;
+    }
+
+    pub mod fields {
+        use crate::isa::InstructionField;
+        type IF = InstructionField;
+
+        pub const OPCODE: IF = InstructionField { width: 4, shift: 0 };
+        pub const SOURCE: IF = InstructionField {
+            width: 4,
+            shift: 12,
+        };
+        pub const DESTINATION: IF = InstructionField { width: 4, shift: 8 };
+        pub const ALU_FUNCTION: IF = InstructionField { width: 4, shift: 4 };
+        pub const IMM_FUNCTION: IF = InstructionField {
+            width: 4,
+            shift: 12,
+        };
+        pub const SUB_FUNCTION: IF = InstructionField {
+            width: 4,
+            shift: 12,
+        };
+        pub const CTRL_FUNCTION: IF = InstructionField { width: 4, shift: 8 };
+        pub const JUMP_TYPE: IF = InstructionField { width: 3, shift: 8 };
+    }
 }
 
-const INSTRUCTION_OPCODE: InstructionField = InstructionField {width: 4, shift: 0};
-const INSTRUCTION_SOURCE: InstructionField = InstructionField {width: 4, shift: 12};
-const INSTRUCTION_DESTINATION: InstructionField = InstructionField {width: 4, shift: 8};
-const INSTRUCTION_FUNCTION: InstructionField = InstructionField {width: 4, shift: 4};
-const INSTRUCTION_IMMEDIATE_FUNCTION: InstructionField = InstructionField {width: 4, shift: 12};
-const INSTRUCTION_JUMP_TYPE: InstructionField = InstructionField {width: 3, shift: 8};
-const INSTRUCTION_SUB_FUNCTION: InstructionField = InstructionField {width: 4, shift: 12};
-const INSTRUCTION_SPECIAL_FUNCTION: InstructionField = InstructionField {width: 4, shift: 8};
+mod ctrl {
+    pub const DEFAULT_REGISTER: u32 = 0b0000;
+    pub const LINK_REGISTER: u32 = 0b1111;
 
-const OPCODE_LUI: Instruction = 0b01;  // Low two
-const OPCODE_AUIPC: Instruction = 0b11;
-const OPCODE_ALU: Instruction = 0b0000;  // Low four
-const OPCODE_IMM: Instruction = 0b1000;
-const OPCODE_LD: Instruction = 0b0010;
-const OPCODE_LD8: Instruction = 0b1010;
-const OPCODE_ST: Instruction = 0b0100;
-const OPCODE_ST8: Instruction = 0b1100;
-const OPCODE_LD8S: Instruction = 0b0110;
-const OPCODE_JMP: Instruction = 0b1110;
+    pub struct ControlLines {
+        pub condition: u32,
+        pub register_write: bool,
+        pub register_write_select: RegisterWriteSelect,
+        pub left: LeftSelect,
+        pub right: RightSelect,
+        pub source: u32,
+        pub destination: u32,
+        pub immediate: u32,
+        pub function: u32,
+        pub memory_write: bool,
+        pub memory_read: u32,
+        pub write_back: u32,
+    }
 
-const JUMP_TYPE_EQ: u16 = 0b000;
-const JUMP_TYPE_NE: u16 = 0b001;
-const JUMP_TYPE_LT: u16 = 0b010;
-const JUMP_TYPE_GE: u16 = 0b011;
-const JUMP_TYPE_LTS: u16 = 0b100;
-const JUMP_TYPE_GES: u16 = 0b101;
-const JUMP_TYPE_JR: u16 = 0b110;
-const JUMP_TYPE_JRAL: u16 = 0b111;
+    impl Default for ControlLines {
+        fn default() -> Self {
+            ControlLines {
+                condition: conditions::NEVER,
+                register_write: false,
+                register_write_select: RegisterWriteSelect::Destination,
+                left: LeftSelect::Source,
+                right: RightSelect::Destination,
+                source: DEFAULT_REGISTER,
+                destination: DEFAULT_REGISTER,
+                immediate: immediate_format::FOUR,
+                function: functions::MOV,
+                memory_write: false,
+                memory_read: memory_read::WORD,
+                write_back: write_back::ALU_RESULT,
+            }
+        }
+    }
 
-const FUNCTION_ADD: Instruction = 0b0000;
-const FUNCTION_SUB: Instruction = 0b0001;
-const FUNCTION_ADDC: Instruction = 0b0010;
-const FUNCTION_SUBB: Instruction = 0b0011;
-const FUNCTION_AND: Instruction = 0b0100;
-const FUNCTION_OR: Instruction = 0b0101;
-const FUNCTION_XOR: Instruction = 0b0110;
-const FUNCTION_SHL: Instruction = 0b0111;
-const FUNCTION_LSR: Instruction = 0b1000;
-const FUNCTION_ASR: Instruction = 0b1001;
-// 0b1010;
-// 0b1011;
-// 0b1100;
-const FUNCTION_CMP: Instruction = 0b1101;
-const FUNCTION_MOV: Instruction = 0b1110;
-const FUNCTION_SINGLE_OPERAND: Instruction = 0b1111;
+    pub struct ControlField {
+        pub shift: u32,
+    }
 
-const SUB_FUNCTION_NOT: Instruction = 0b0000;
-const SUB_FUNCTION_NEG: Instruction = 0b0001;
-const SUB_FUNCTION_NEGB: Instruction = 0b0010;
-// 0b0011 - 0b1110
-const SUB_FUNCTION_SPECIAL: Instruction = 0b1111;
+    pub mod fields {
+        use crate::ctrl::ControlField;
+        type CF = ControlField;
 
-const SPECIAL_FUNCTION_NOP: Instruction = 0b0000;
-const SPECIAL_FUNCTION_BREAK: Instruction = 0b0001;
-const SPECIAL_FUNCTION_HALT: Instruction = 0b0010;
-const SPECIAL_FUNCTION_ERR: Instruction = 0b0011;
-const SPECIAL_FUNCTION_SYS: Instruction = 0b0100;
-const SPECIAL_FUNCTION_SRET: Instruction = 0b0101;
+        pub const CONDITION: CF = ControlField { shift: 0 };
+        pub const REGISTER_WRITE: CF = ControlField { shift: 3 };
+        pub const REGISTER_WRITE_SELECT: CF = ControlField { shift: 4 };
+        pub const LEFT: CF = ControlField { shift: 5 };
+        pub const RIGHT: CF = ControlField { shift: 6 };
+        pub const SOURCE: CF = ControlField { shift: 7 };
+        pub const DESTINATION: CF = ControlField { shift: 11 };
+        pub const IMMEDIATE: CF = ControlField { shift: 15 };
+        pub const FUNCTION: CF = ControlField { shift: 17 };
+        pub const MEMORY_WRITE: CF = ControlField { shift: 21 };
+        pub const MEMORY_READ: CF = ControlField { shift: 23 };
+        pub const WRITE_BACK: CF = ControlField { shift: 25 };
+    }
 
-// ------------------------------------
+    pub mod functions {
+        pub const ADD: u32 = 0b0000;
+        pub const SUB: u32 = 0b0001;
+        pub const ADDC: u32 = 0b0010;
+        pub const SUBB: u32 = 0b0011;
+        pub const AND: u32 = 0b0100;
+        pub const OR: u32 = 0b0101;
+        pub const XOR: u32 = 0b0110;
+        pub const SHL: u32 = 0b0111;
+        pub const LSR: u32 = 0b1000;
+        pub const ASR: u32 = 0b1001;
+        pub const MOV: u32 = 0b1010;
+        pub const RIGHT: u32 = 0b1011;
+        pub const NOT: u32 = 0b1100;
+        pub const NEG: u32 = 0b1101;
+        pub const NEGB: u32 = 0b1110;
+    }
 
-const CONTROL_LINK_REGISTER: u32 = 0b1111;
+    pub mod conditions {
+        pub const NEVER: u32 = 0b000;
+        pub const EQ: u32 = 0b001;
+        pub const NE: u32 = 0b010;
+        pub const LT: u32 = 0b011;
+        pub const GE: u32 = 0b100;
+        pub const LTS: u32 = 0b101;
+        pub const GES: u32 = 0b110;
+        pub const ALWAYS: u32 = 0b111;
+    }
 
-struct ControlField {
-    _width: ControlWord,
-    shift: ControlWord,
+    pub enum LeftSelect {
+        Source,
+        ProgramCounter,
+    }
+
+    pub enum RightSelect {
+        Destination,
+        Immediate,
+    }
+
+    pub enum RegisterWriteSelect {
+        Destination,
+        Source,
+    }
+
+    pub mod immediate_format {
+        pub const FOUR: u32 = 0b00;
+        pub const SIX: u32 = 0b01;
+        pub const NINE: u32 = 0b10;
+        pub const TEN: u32 = 0b11;
+    }
+
+    pub mod memory_read {
+        pub const SIGN_EXTEND: u32 = 0b00;
+        pub const WORD: u32 = 0b10;
+        pub const ZERO_EXTEND: u32 = 0b11;
+    }
+
+    pub mod write_back {
+        pub const MEMORY_READ: u32 = 0b00;
+        pub const ALU_RESULT: u32 = 0b01;
+        pub const PROGRAM_COUNTER: u32 = 0b10;
+    }
+
+    impl Into<u32> for LeftSelect {
+        fn into(self) -> u32 {
+            match self {
+                LeftSelect::Source => 0,
+                LeftSelect::ProgramCounter => 1,
+            }
+        }
+    }
+
+    impl Into<u32> for RightSelect {
+        fn into(self) -> u32 {
+            match self {
+                RightSelect::Destination => 0,
+                RightSelect::Immediate => 1,
+            }
+        }
+    }
+
+    impl Into<u32> for RegisterWriteSelect {
+        fn into(self) -> u32 {
+            match self {
+                RegisterWriteSelect::Destination => 0,
+                RegisterWriteSelect::Source => 1,
+            }
+        }
+    }
 }
 
-const CONTROL_CONDITION: ControlField = ControlField {_width: 3, shift: 0};
-const CONTROL_REGISTER_WRITE: ControlField = ControlField {_width: 1, shift: 3};
-const CONTROL_LEFT: ControlField = ControlField {_width: 1, shift: 4};
-const CONTROL_RIGHT: ControlField = ControlField {_width: 1, shift: 5};
-const CONTROL_SOURCE: ControlField = ControlField {_width: 4, shift: 6};
-const CONTROL_DESTINATION: ControlField = ControlField {_width: 4, shift: 10};
-const CONTROL_IMMEDIATE: ControlField = ControlField {_width: 2, shift: 14};
-const CONTROL_FUNCTION: ControlField = ControlField {_width: 4, shift: 16};
-const CONTROL_MEMORY_WRITE: ControlField = ControlField {_width: 2, shift: 20};
-const CONTROL_MEMORY_READ: ControlField = ControlField {_width: 2, shift: 22};
-const CONTROL_WRITE_BACK: ControlField = ControlField {_width: 2, shift: 24};
-
-struct FunctionDecoding {
-    add: ControlWord,
-    sub: ControlWord,
-    addc: ControlWord,
-    subb: ControlWord,
-    and: ControlWord,
-    or: ControlWord,
-    xor: ControlWord,
-    shl: ControlWord,
-    lsr: ControlWord,
-    asr: ControlWord,
-    mv: ControlWord,
-    right: ControlWord,
-    not: ControlWord,
-    neg: ControlWord,
-    negb: ControlWord,
-}
-
-const FUNCTION_DECODING: FunctionDecoding = FunctionDecoding {
-    add: 0b0000,
-    sub: 0b0001,
-    addc: 0b0010,
-    subb: 0b0011,
-    and: 0b0100,
-    or: 0b0101,
-    xor: 0b0110,
-    shl: 0b0111,
-    lsr: 0b1000,
-    asr: 0b1001,
-    mv: 0b1010,
-    right: 0b1011,
-    not: 0b1100,
-    neg: 0b1101,
-    negb: 0b1110,
-};
-
-struct JumpCondition {
-    never: ControlWord,
-    eq: ControlWord,
-    ne: ControlWord,
-    lt: ControlWord,
-    ge: ControlWord,
-    lts: ControlWord,
-    ges: ControlWord,
-    always: ControlWord,
-}
-
-const CONDITION: JumpCondition = JumpCondition {
-    never: 0b000,
-    eq: 0b001,
-    ne: 0b010,
-    lt: 0b011,
-    ge: 0b100,
-    lts: 0b101,
-    ges: 0b110,
-    always: 0b111,
-};
-
-struct MemoryRead {
-    sign_extend: ControlWord,
-    word: ControlWord,
-    zero_extend: ControlWord,
-}
-
-const MEMORY_READ: MemoryRead = MemoryRead {
-    sign_extend: 0b00,
-    zero_extend: 0b10,
-    word: 0b11,
-};
-
-struct WriteBack {
-    memory_read: ControlWord,
-    alu_result: ControlWord,
-    program_counter: ControlWord,
-}
-
-const WRITE_BACK: WriteBack = WriteBack {
-    memory_read: 0b00,
-    alu_result: 0b01,
-    program_counter: 0b10,
-};
-
-struct Immediate {
-    four: ControlWord,
-    six: ControlWord,
-    nine: ControlWord,
-    ten: ControlWord,
-}
-
-const IMMEDIATE: Immediate = Immediate {
-    four: 0b00,
-    six: 0b01,
-    nine: 0b10,
-    ten: 0b11,
-};
-
-struct LeftSelect {
-    source: bool,
-    program_counter: bool,
-}
-
-const LEFT_SELECT: LeftSelect = LeftSelect {
-    source: false,
-    program_counter: true,
-};
-
-struct RightSelect {
-    destination: bool,
-    immediate: bool,
-}
-
-const RIGHT_SELECT: RightSelect = RightSelect {
-    destination: false,
-    immediate: true,
-};
-
-struct ControlLines {
-    condition: ControlWord,
-    register_write: bool,
-    left: bool,
-    right: bool,
-    source: ControlWord,
-    destination: ControlWord,
-    immediate: ControlWord,
-    function: ControlWord,
-    memory_write: bool,
-    memory_read: ControlWord,
-    write_back: ControlWord,
-}
-
-// ------------------------------------
+use ctrl::ControlLines;
+use ctrl::LeftSelect;
+use ctrl::RightSelect;
 
 // Extract bits from an instruction.
-fn get_bits(inst: Instruction, count: u16, shift: u16) -> u16 {
+fn get_bits(inst: u16, count: u16, shift: u16) -> u16 {
     const BASE: u16 = 2;
 
     let n = BASE.pow(count.into()) - 1;
@@ -258,14 +282,14 @@ fn get_bits(inst: Instruction, count: u16, shift: u16) -> u16 {
     (inst >> shift) & n
 }
 
-fn get_field(inst: Instruction, field: InstructionField) -> Instruction {
-    get_bits(inst, field.width, field.shift) as Instruction
+fn get_field(inst: u16, field: isa::InstructionField) -> u16 {
+    get_bits(inst, field.width, field.shift) as u16
 }
 
 // Loop over all instruction permutations 0..2^16, decode them into their
 // representative control lines, and write them to appropriate decode
 // ROM binaries.
-fn main() -> Result<(), std::io::Error>{
+fn main() -> Result<(), std::io::Error> {
     let control_words: Vec<u32> = (0..=u16::MAX)
         .into_iter()
         .map(|inst| decode_instruction(inst))
@@ -275,28 +299,28 @@ fn main() -> Result<(), std::io::Error>{
 }
 
 // Given an Instruction, produce the ControlWord that executes it.
-fn decode_instruction(inst: Instruction) -> ControlWord {
-    let four_bits = get_field(inst, INSTRUCTION_OPCODE);
+fn decode_instruction(inst: u16) -> u32 {
+    let four_bits = get_field(inst, isa::fields::OPCODE);
     let two_bits = get_bits(inst, 2, 0);
 
     match two_bits {
-        OPCODE_LUI => decode_lui(inst),
-        OPCODE_AUIPC => decode_auipc(inst),
+        isa::opcodes::LUI => decode_lui(inst),
+        isa::opcodes::AUIPC => decode_auipc(inst),
         _ => match four_bits {
-            OPCODE_ALU => decode_alu(inst),
-            OPCODE_IMM => decode_imm(inst),
-            OPCODE_LD => decode_ld(inst),
-            OPCODE_LD8 => decode_ld8(inst),
-            OPCODE_LD8S => decode_ld8s(inst),
-            OPCODE_ST => decode_st(inst),
-            OPCODE_ST8 => decode_st8(inst),
-            OPCODE_JMP => decode_jmp(inst),
+            isa::opcodes::ALU => decode_alu(inst),
+            isa::opcodes::IMM => decode_imm(inst),
+            isa::opcodes::LD => decode_ld(inst),
+            isa::opcodes::LD8 => decode_ld8(inst),
+            isa::opcodes::LD8S => decode_ld8s(inst),
+            isa::opcodes::ST => decode_st(inst),
+            isa::opcodes::ST8 => decode_st8(inst),
+            isa::opcodes::JMP => decode_jmp(inst),
             _ => unreachable!(),
-        }
+        },
     }
 }
 
-fn write_roms(control_words: Vec<ControlWord>) -> std::io::Result<()> {
+fn write_roms(control_words: Vec<u32>) -> std::io::Result<()> {
     let mut bytes = Vec::new();
 
     for word in control_words {
@@ -309,337 +333,312 @@ fn write_roms(control_words: Vec<ControlWord>) -> std::io::Result<()> {
     fs::File::create("../bwb16_control_rom.bin")?.write_all(&bytes)
 }
 
-fn encode_control_word(lines: ControlLines) -> ControlWord {
-    let register_write = if lines.register_write { 1 } else { 0 };
-    let left = if lines.left { 1 } else { 0 };
-    let right = if lines.right { 1 } else { 0 };
-    let memory_write = if lines.memory_write { 1 } else { 0 };
+fn encode_control_word(lines: ControlLines) -> u32 {
+    let register_write = lines.register_write as u32;
+    let memory_write = lines.memory_write as u32;
 
-    (lines.condition << CONTROL_CONDITION.shift) |
-    (register_write << CONTROL_REGISTER_WRITE.shift) |
-    (left << CONTROL_LEFT.shift) |
-    (right << CONTROL_RIGHT.shift) |
-    (lines.source << CONTROL_SOURCE.shift) |
-    (lines.destination << CONTROL_DESTINATION.shift) |
-    (lines.immediate << CONTROL_IMMEDIATE.shift) |
-    (lines.function << CONTROL_FUNCTION.shift) |
-    (memory_write << CONTROL_MEMORY_WRITE.shift) |
-    (lines.memory_read << CONTROL_MEMORY_READ.shift) |
-    (lines.write_back << CONTROL_WRITE_BACK.shift)
+    let left: u32 = lines.left.into();
+    let right: u32 = lines.right.into();
+    let register_write_select: u32 = lines.register_write_select.into();
+
+    (lines.condition << ctrl::fields::CONDITION.shift)
+        | (register_write << ctrl::fields::REGISTER_WRITE.shift)
+        | (register_write_select << ctrl::fields::REGISTER_WRITE_SELECT.shift)
+        | (left << ctrl::fields::LEFT.shift)
+        | (right << ctrl::fields::RIGHT.shift)
+        | (lines.source << ctrl::fields::SOURCE.shift)
+        | (lines.destination << ctrl::fields::DESTINATION.shift)
+        | (lines.immediate << ctrl::fields::IMMEDIATE.shift)
+        | (lines.function << ctrl::fields::FUNCTION.shift)
+        | (memory_write << ctrl::fields::MEMORY_WRITE.shift)
+        | (lines.memory_read << ctrl::fields::MEMORY_READ.shift)
+        | (lines.write_back << ctrl::fields::WRITE_BACK.shift)
 }
 
 // Produce the ControlWord for an Instruction with opcode ALU
-fn decode_alu(inst: Instruction) -> ControlWord {
-    let source = get_field(inst, INSTRUCTION_SOURCE) as u32;
-    let destination = get_field(inst, INSTRUCTION_DESTINATION) as u32;
-    let encoded_function = get_field(inst, INSTRUCTION_FUNCTION);
-    let encoded_sub_function = get_field(inst, INSTRUCTION_SUB_FUNCTION);
+fn decode_alu(inst: u16) -> u32 {
+    let source = get_field(inst, isa::fields::SOURCE) as u32;
+    let destination = get_field(inst, isa::fields::DESTINATION) as u32;
+    let encoded_function = get_field(inst, isa::fields::ALU_FUNCTION);
+    let encoded_sub_function = get_field(inst, isa::fields::SUB_FUNCTION);
 
     let decoded_function = match encoded_function {
-        FUNCTION_ADD => FUNCTION_DECODING.add,
-        FUNCTION_SUB => FUNCTION_DECODING.sub,
-        FUNCTION_ADDC => FUNCTION_DECODING.addc,
-        FUNCTION_SUBB => FUNCTION_DECODING.subb,
-        FUNCTION_AND => FUNCTION_DECODING.and,
-        FUNCTION_OR => FUNCTION_DECODING.or,
-        FUNCTION_XOR => FUNCTION_DECODING.xor,
-        FUNCTION_SHL => FUNCTION_DECODING.shl,
-        FUNCTION_LSR => FUNCTION_DECODING.lsr,
-        FUNCTION_ASR => FUNCTION_DECODING.asr,
-        FUNCTION_CMP => FUNCTION_DECODING.sub,
-        FUNCTION_MOV => FUNCTION_DECODING.mv,
-        FUNCTION_SINGLE_OPERAND => match encoded_sub_function {
-            SUB_FUNCTION_NOT => FUNCTION_DECODING.not,
-            SUB_FUNCTION_NEG => FUNCTION_DECODING.neg,
-            SUB_FUNCTION_NEGB => FUNCTION_DECODING.negb,
-            SUB_FUNCTION_SPECIAL => return decode_special(inst),
-            _ => FUNCTION_DECODING.mv,
+        isa::functions::ADD => ctrl::functions::ADD,
+        isa::functions::SUB => ctrl::functions::SUB,
+        isa::functions::ADDC => ctrl::functions::ADDC,
+        isa::functions::SUBB => ctrl::functions::SUBB,
+        isa::functions::AND => ctrl::functions::AND,
+        isa::functions::OR => ctrl::functions::OR,
+        isa::functions::XOR => ctrl::functions::XOR,
+        isa::functions::SHL => ctrl::functions::SHL,
+        isa::functions::LSR => ctrl::functions::LSR,
+        isa::functions::ASR => ctrl::functions::ASR,
+        isa::functions::CMP => ctrl::functions::SUB,
+        isa::functions::MOV => ctrl::functions::MOV,
+        isa::functions::SUB_FUNCTION => match encoded_sub_function {
+            isa::sub_functions::NOT => ctrl::functions::NOT,
+            isa::sub_functions::NEG => ctrl::functions::NEG,
+            isa::sub_functions::NEGB => ctrl::functions::NEGB,
+            isa::sub_functions::CONTROL_FUNCTION => return decode_control(inst),
+            _ => ctrl::functions::MOV,
         },
-        _ => FUNCTION_DECODING.mv,
+        _ => ctrl::functions::MOV,
     };
 
-    let is_mv_encoded = encoded_function == FUNCTION_MOV;
-    let is_mv_decoded = decoded_function == FUNCTION_DECODING.mv;
+    let is_mv_encoded = encoded_function == isa::functions::MOV;
+    let is_mv_decoded = decoded_function == ctrl::functions::MOV;
 
     let register_write = if is_mv_decoded && !is_mv_encoded {
         false
     } else {
-        encoded_function != FUNCTION_CMP
+        encoded_function != isa::functions::CMP
     };
 
     encode_control_word(ControlLines {
-        condition: CONDITION.never,
-        register_write: register_write,
-        left: LEFT_SELECT.source,
-        right: RIGHT_SELECT.destination,
-        source: source,
-        destination: destination,
-        immediate: IMMEDIATE.four,
+        register_write,
+        source,
+        destination,
         function: decoded_function,
-        memory_write: false,
-        memory_read: MEMORY_READ.word,
-        write_back: WRITE_BACK.alu_result,
+        ..Default::default()
     })
 }
 
 // Produce the ControlWord for a special purpose Instruction
-fn decode_special(inst: Instruction) -> ControlWord {
+fn decode_control(inst: u16) -> u32 {
     // Currently treating all as NOP
     // Most only have special functionality in emulation
     // Others are not implemented in hardware yet
-    let function = get_field(inst, INSTRUCTION_SPECIAL_FUNCTION);
+    let function = get_field(inst, isa::fields::CTRL_FUNCTION);
 
     let _dummy = match function {
-        SPECIAL_FUNCTION_NOP => (),
-        SPECIAL_FUNCTION_BREAK => (),
-        SPECIAL_FUNCTION_HALT => (),
-        SPECIAL_FUNCTION_ERR => (),
-        SPECIAL_FUNCTION_SYS => (),
-        SPECIAL_FUNCTION_SRET => (),
+        isa::control_functions::NOP => (),
+        isa::control_functions::BREAK => (),
+        isa::control_functions::HALT => (),
+        isa::control_functions::ERR => (),
+        isa::control_functions::SYS => (),
+        isa::control_functions::SRET => (),
         _ => (),
     };
 
-    encode_control_word(ControlLines {
-        condition: CONDITION.never,
-        register_write: false,
-        left: LEFT_SELECT.source,
-        right: RIGHT_SELECT.destination,
-        source: 0b0000,
-        destination: 0b0000,
-        immediate: IMMEDIATE.four,
-        function: FUNCTION_DECODING.mv,
-        memory_write: false,
-        memory_read: MEMORY_READ.word,
-        write_back: WRITE_BACK.alu_result,
-    })
+    encode_control_word(ControlLines::default())
 }
 
 // Produce the ControlWord for an Instruction with opcode IMM
-fn decode_imm(inst: Instruction) -> ControlWord {
-    let source = get_field(inst, INSTRUCTION_SOURCE) as u32;
+fn decode_imm(inst: u16) -> u32 {
+    let source = get_field(inst, isa::fields::SOURCE) as u32;
     let destination = source;
 
-    let encoded_function = get_field(inst, INSTRUCTION_IMMEDIATE_FUNCTION);
-    let top_two = get_bits(encoded_function as u16, 2, 14);
+    let encoded_function = get_field(inst, isa::fields::IMM_FUNCTION);
+    let top_two = get_bits(encoded_function, 2, 14);
 
     let (immediate, operation) = match top_two {
-        0b00 => (IMMEDIATE.six as u32, FUNCTION_DECODING.add),
-        0b01 => (IMMEDIATE.six as u32, FUNCTION_DECODING.sub),
+        0b00 => (ctrl::immediate_format::SIX as u32, ctrl::functions::ADD),
+        0b01 => (ctrl::immediate_format::SIX as u32, ctrl::functions::SUB),
         0b10 => return decode_jal(inst),
         0b11 => match encoded_function & 0b11 {
-            0b00 => (IMMEDIATE.four as u32, FUNCTION_DECODING.shl),
-            0b01 => (IMMEDIATE.four as u32, FUNCTION_DECODING.lsr),
-            0b10 => (IMMEDIATE.four as u32, FUNCTION_DECODING.asr),
-            0b11 => (IMMEDIATE.four as u32, FUNCTION_DECODING.and),
+            0b00 => (ctrl::immediate_format::FOUR as u32, ctrl::functions::SHL),
+            0b01 => (ctrl::immediate_format::FOUR as u32, ctrl::functions::LSR),
+            0b10 => (ctrl::immediate_format::FOUR as u32, ctrl::functions::ASR),
+            0b11 => (ctrl::immediate_format::FOUR as u32, ctrl::functions::AND),
             _ => unreachable!(),
         },
         _ => unreachable!(),
     };
 
-    let register_write = if top_two == 0b01 { false } else { true };
+    let register_write = top_two != 0b01;
 
     encode_control_word(ControlLines {
-        condition: CONDITION.never,
-        register_write: register_write,
-        left: LEFT_SELECT.source,
-        right: RIGHT_SELECT.immediate,
-        source: source,
-        destination: destination,
-        immediate: immediate,
+        register_write,
+        right: RightSelect::Immediate,
+        source,
+        destination,
+        immediate,
         function: operation,
-        memory_write: false,
-        memory_read: MEMORY_READ.word,
-        write_back: WRITE_BACK.alu_result,
+        ..Default::default()
     })
 }
 
 // Produce the ControlWord for the JAL Instruction
-fn decode_jal(_inst: Instruction) -> ControlWord {
+fn decode_jal(_inst: u16) -> u32 {
     encode_control_word(ControlLines {
-        condition: CONDITION.always,
         register_write: true,
-        left: LEFT_SELECT.program_counter,
-        right: RIGHT_SELECT.immediate,
-        source: CONTROL_LINK_REGISTER,
-        destination: CONTROL_LINK_REGISTER,
-        immediate: IMMEDIATE.six as u32,
-        function: FUNCTION_DECODING.add,
-        memory_write: false,
-        memory_read: MEMORY_READ.sign_extend,
-        write_back: WRITE_BACK.program_counter,
+        register_write_select: ctrl::RegisterWriteSelect::Source,
+        left: LeftSelect::ProgramCounter,
+        right: RightSelect::Immediate,
+        source: ctrl::LINK_REGISTER,
+        destination: ctrl::LINK_REGISTER,
+        immediate: ctrl::immediate_format::SIX,
+        function: ctrl::functions::ADD,
+        memory_read: ctrl::memory_read::SIGN_EXTEND,
+        write_back: ctrl::write_back::PROGRAM_COUNTER,
+        ..Default::default()
     })
 }
 
 // Produce the ControlWord for an Instruction with opcode LD
-fn decode_ld(inst: Instruction) -> ControlWord {
-    let source = get_field(inst, INSTRUCTION_SOURCE) as u32;
-    let destination = get_field(inst, INSTRUCTION_DESTINATION) as u32;
+fn decode_ld(inst: u16) -> u32 {
+    let source = get_field(inst, isa::fields::SOURCE) as u32;
+    let destination = get_field(inst, isa::fields::DESTINATION) as u32;
 
     encode_control_word(ControlLines {
-        condition: CONDITION.never,
         register_write: true,
-        left: LEFT_SELECT.source,
-        right: RIGHT_SELECT.immediate,
-        source: source,
-        destination: destination,
-        immediate: IMMEDIATE.four,
-        function: FUNCTION_DECODING.add,
-        memory_write: false,
-        memory_read: MEMORY_READ.word,
-        write_back: WRITE_BACK.memory_read,
+        right: RightSelect::Immediate,
+        source,
+        destination,
+        function: ctrl::functions::ADD,
+        write_back: ctrl::write_back::MEMORY_READ,
+        ..Default::default()
     })
 }
 
 // Produce the ControlWord for an Instruction with opcode LD8
-fn decode_ld8(inst: Instruction) -> ControlWord {
-    let source = get_field(inst, INSTRUCTION_SOURCE) as u32;
-    let destination = get_field(inst, INSTRUCTION_DESTINATION) as u32;
+fn decode_ld8(inst: u16) -> u32 {
+    let source = get_field(inst, isa::fields::SOURCE) as u32;
+    let destination = get_field(inst, isa::fields::DESTINATION) as u32;
 
     encode_control_word(ControlLines {
-        condition: CONDITION.never,
         register_write: true,
-        left: LEFT_SELECT.source,
-        right: RIGHT_SELECT.immediate,
-        source: source,
-        destination: destination,
-        immediate: IMMEDIATE.four,
-        function: FUNCTION_DECODING.add,
-        memory_write: false,
-        memory_read: MEMORY_READ.zero_extend,
-        write_back: WRITE_BACK.memory_read,
+        right: RightSelect::Immediate,
+        source,
+        destination,
+        function: ctrl::functions::ADD,
+        memory_read: ctrl::memory_read::ZERO_EXTEND,
+        write_back: ctrl::write_back::MEMORY_READ,
+        ..Default::default()
     })
 }
 
 // Produce the ControlWord for an Instruction with opcode ST
-fn decode_st(inst: Instruction) -> ControlWord {
-    let source = get_field(inst, INSTRUCTION_SOURCE) as u32;
-    let destination = get_field(inst, INSTRUCTION_DESTINATION) as u32;
+fn decode_st(inst: u16) -> u32 {
+    let source = get_field(inst, isa::fields::SOURCE) as u32;
+    let destination = get_field(inst, isa::fields::DESTINATION) as u32;
 
     encode_control_word(ControlLines {
-        condition: CONDITION.never,
-        register_write: false,
-        left: LEFT_SELECT.source,
-        right: RIGHT_SELECT.immediate,
-        source: source,
-        destination: destination,
-        immediate: IMMEDIATE.four,
-        function: FUNCTION_DECODING.add,
+        right: RightSelect::Immediate,
+        source,
+        destination,
+        function: ctrl::functions::ADD,
         memory_write: true,
-        memory_read: MEMORY_READ.zero_extend,
-        write_back: WRITE_BACK.memory_read,
+        memory_read: ctrl::memory_read::ZERO_EXTEND,
+        write_back: ctrl::write_back::MEMORY_READ,
+        ..Default::default()
     })
 }
 
 // Produce the ControlWord for an Instruction with opcode ST8
-fn decode_st8(inst: Instruction) -> ControlWord {
-    let source = get_field(inst, INSTRUCTION_SOURCE) as u32;
-    let destination = get_field(inst, INSTRUCTION_DESTINATION) as u32;
+fn decode_st8(inst: u16) -> u32 {
+    let source = get_field(inst, isa::fields::SOURCE) as u32;
+    let destination = get_field(inst, isa::fields::DESTINATION) as u32;
 
     encode_control_word(ControlLines {
-        condition: CONDITION.never,
-        register_write: false,
-        left: LEFT_SELECT.source,
-        right: RIGHT_SELECT.immediate,
-        source: source,
-        destination: destination,
-        immediate: IMMEDIATE.four,
-        function: FUNCTION_DECODING.add,
+        right: RightSelect::Immediate,
+        source,
+        destination,
+        function: ctrl::functions::ADD,
         memory_write: true,
-        memory_read: MEMORY_READ.zero_extend,
-        write_back: WRITE_BACK.memory_read,
+        memory_read: ctrl::memory_read::ZERO_EXTEND,
+        write_back: ctrl::write_back::MEMORY_READ,
+        ..Default::default()
     })
 }
 
 // Produce the ControlWord for an Instruction with opcode LD8S
-fn decode_ld8s(inst: Instruction) -> ControlWord {
-    let source = get_field(inst, INSTRUCTION_SOURCE) as u32;
-    let destination = get_field(inst, INSTRUCTION_DESTINATION) as u32;
+fn decode_ld8s(inst: u16) -> u32 {
+    let source = get_field(inst, isa::fields::SOURCE) as u32;
+    let destination = get_field(inst, isa::fields::DESTINATION) as u32;
 
     encode_control_word(ControlLines {
-        condition: CONDITION.never,
+        condition: ctrl::conditions::NEVER,
         register_write: false,
-        left: LEFT_SELECT.source,
-        right: RIGHT_SELECT.immediate,
+        register_write_select: ctrl::RegisterWriteSelect::Destination,
+        left: LeftSelect::Source,
+        right: RightSelect::Immediate,
         source: source,
         destination: destination,
-        immediate: IMMEDIATE.four,
-        function: FUNCTION_DECODING.add,
+        immediate: ctrl::immediate_format::FOUR,
+        function: ctrl::functions::ADD,
         memory_write: true,
-        memory_read: MEMORY_READ.sign_extend,
-        write_back: WRITE_BACK.memory_read,
+        memory_read: ctrl::memory_read::SIGN_EXTEND,
+        write_back: ctrl::write_back::MEMORY_READ,
     })
 }
 
 // Produce the ControlWord for an Instruction with opcode JMP
-fn decode_jmp(inst: Instruction) -> ControlWord {
-    let jump_kind = get_field(inst, INSTRUCTION_JUMP_TYPE);
+fn decode_jmp(inst: u16) -> u32 {
+    let jump_kind = get_field(inst, isa::fields::JUMP_TYPE);
 
     let condition = match jump_kind {
-        JUMP_TYPE_EQ => CONDITION.eq,
-        JUMP_TYPE_NE => CONDITION.ne,
-        JUMP_TYPE_LT => CONDITION.lt,
-        JUMP_TYPE_GE => CONDITION.ge,
-        JUMP_TYPE_LTS => CONDITION.lts,
-        JUMP_TYPE_GES => CONDITION.ges,
-        JUMP_TYPE_JR => CONDITION.always,
-        JUMP_TYPE_JRAL => CONDITION.always,
+        isa::jumps::EQ => ctrl::conditions::EQ,
+        isa::jumps::NE => ctrl::conditions::NE,
+        isa::jumps::LT => ctrl::conditions::LT,
+        isa::jumps::GE => ctrl::conditions::GE,
+        isa::jumps::LTS => ctrl::conditions::LTS,
+        isa::jumps::GES => ctrl::conditions::GES,
+        isa::jumps::JR => ctrl::conditions::ALWAYS,
+        isa::jumps::JRAL => ctrl::conditions::ALWAYS,
         _ => unreachable!(),
     };
 
-    let reg_write = match jump_kind {
-        JUMP_TYPE_JRAL => true,
-        _ => false,
-    };
+    let register_write = jump_kind == isa::jumps::JRAL;
 
     encode_control_word(ControlLines {
-        condition: condition,
-        register_write: reg_write,
-        left: LEFT_SELECT.program_counter,
-        right: RIGHT_SELECT.immediate,
-        source: CONTROL_LINK_REGISTER,
-        destination: CONTROL_LINK_REGISTER,
-        immediate: IMMEDIATE.nine as u32,
-        function: FUNCTION_DECODING.add,
-        memory_write: false,
-        memory_read: MEMORY_READ.sign_extend,
-        write_back: WRITE_BACK.program_counter,
+        condition,
+        register_write,
+        left: LeftSelect::ProgramCounter,
+        right: RightSelect::Immediate,
+        source: ctrl::LINK_REGISTER,
+        destination: ctrl::LINK_REGISTER,
+        immediate: ctrl::immediate_format::NINE,
+        function: ctrl::functions::ADD,
+        write_back: ctrl::write_back::PROGRAM_COUNTER,
+        ..Default::default()
     })
 }
 
 // Produce the ControlWord for an Instruction with opcode LUI
-fn decode_lui(inst: Instruction) -> ControlWord {
-    let destination = get_field(inst, INSTRUCTION_DESTINATION) as u32;
+fn decode_lui(inst: u16) -> u32 {
+    let destination = get_field(inst, isa::fields::DESTINATION) as u32;
+    let source = destination;
 
     encode_control_word(ControlLines {
-        condition: CONDITION.never,
         register_write: true,
-        left: LEFT_SELECT.source,
-        right: RIGHT_SELECT.immediate,
-        source: destination,
-        destination: destination,
-        immediate: IMMEDIATE.ten as u32,
-        function: FUNCTION_DECODING.right,
-        memory_write: false,
-        memory_read: MEMORY_READ.sign_extend,
-        write_back: WRITE_BACK.alu_result,
+        right: RightSelect::Immediate,
+        source,
+        destination,
+        immediate: ctrl::immediate_format::TEN,
+        function: ctrl::functions::RIGHT,
+        ..Default::default()
     })
 }
 
 // Produce the ControlWord for an Instruction with opcode AUIPC
-fn decode_auipc(inst: Instruction) -> ControlWord {
-    let destination = get_field(inst, INSTRUCTION_DESTINATION) as u32;
+fn decode_auipc(inst: u16) -> u32 {
+    let destination = get_field(inst, isa::fields::DESTINATION) as u32;
+    let source = destination;
 
     encode_control_word(ControlLines {
-        condition: CONDITION.never,
+        condition: ctrl::conditions::NEVER,
         register_write: true,
-        left: LEFT_SELECT.program_counter,
-        right: RIGHT_SELECT.immediate,
+        register_write_select: ctrl::RegisterWriteSelect::Destination,
+        left: LeftSelect::ProgramCounter,
+        right: RightSelect::Immediate,
         source: destination,
         destination: destination,
-        immediate: IMMEDIATE.ten as u32,
-        function: FUNCTION_DECODING.add,
+        immediate: ctrl::immediate_format::TEN,
+        function: ctrl::functions::ADD,
         memory_write: false,
-        memory_read: MEMORY_READ.sign_extend,
-        write_back: WRITE_BACK.alu_result,
+        memory_read: ctrl::memory_read::SIGN_EXTEND,
+        write_back: ctrl::write_back::ALU_RESULT,
+    });
+
+    encode_control_word(ControlLines {
+        register_write: true,
+        left: LeftSelect::ProgramCounter,
+        right: RightSelect::Immediate,
+        source,
+        destination,
+        immediate: ctrl::immediate_format::TEN,
+        function: ctrl::functions::ADD,
+        ..Default::default()
     })
 }
