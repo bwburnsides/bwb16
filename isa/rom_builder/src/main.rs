@@ -137,6 +137,9 @@ mod ctrl {
         pub write_back: u32,
     }
 
+    // TODO: How to accomplish this default behavior with the Instruction as a parameter
+    // so that the source and destination registers can be pulled out of the instruction
+    // automatically since the location of those values never change.
     impl Default for ControlLines {
         fn default() -> Self {
             ControlLines {
@@ -615,21 +618,6 @@ fn decode_lui(inst: u16) -> u32 {
 fn decode_auipc(inst: u16) -> u32 {
     let destination = get_field(inst, isa::fields::DESTINATION) as u32;
     let source = destination;
-
-    encode_control_word(ControlLines {
-        condition: ctrl::conditions::NEVER,
-        register_write: true,
-        register_write_select: ctrl::RegisterWriteSelect::Destination,
-        left: LeftSelect::ProgramCounter,
-        right: RightSelect::Immediate,
-        source: destination,
-        destination: destination,
-        immediate: ctrl::immediate_format::TEN,
-        function: ctrl::functions::ADD,
-        memory_write: false,
-        memory_read: ctrl::memory_read::SIGN_EXTEND,
-        write_back: ctrl::write_back::ALU_RESULT,
-    });
 
     encode_control_word(ControlLines {
         register_write: true,
